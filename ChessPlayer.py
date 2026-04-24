@@ -84,7 +84,7 @@ class ChessTransformer(nn.Module):
         # Mask illegal moves
         # Replace illegal moves in logits with negative infinity
         if legal_moves_mask is not None:
-            policy_logits = policy_logits.masked_fill(~legal_moves_mask, float('-inf'))
+            policy_logits = policy_logits.masked_fill(~legal_moves_mask, -1e9)
         
         return policy_logits, value
 

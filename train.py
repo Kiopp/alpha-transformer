@@ -143,6 +143,8 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
                     
                     loss = value_loss + policy_loss
                     loss.backward()
+                    # Clip gradients to a maximum norm of 1.0 to prevent exploding gradients
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                     optimizer.step()
                     
                     total_loss += loss.item()
