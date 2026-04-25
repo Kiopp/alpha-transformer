@@ -41,41 +41,73 @@ class MCTS:
     def search(self, initial_state):
         root = Node(prior_prob=1.0)
 
-        # Simulation loop
-        for _ in range(self.num_simulations):
-            node = root
-            state = self.game.clone_state(initial_state) # Copy board
+        # Expand root to add noise
+        board_tensor, meta_tensor, legal_mask = self.game.prepare_inputs(initial_state)
+        with torch.no_grad():
+            self.model.eval()
+            policy_logits, _ = self.model(board_tensor, meta_tensor, legal_mask)
+            policy_probs = torch.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
 
-            # --- Selection ---
-            # Traverse tree until leaf is reached
+            legal_actions = self.game.get_legal_actions(initial_state)
+            action_probs = {a: policy_probs[a] for a in legal_actions}
+        root.expand(action_probs)
+
+        # Add Dirichlet noise to enable more exploration
+        dirichlet_alpha = 0.3
+        exploration_fraction = 0.25
+
+        # Generate noise
+        noise = np.random.dirichlet([dirichlet_alpha] * len(legal_actions))
+
+        # Blend noise into root prior probabilities
+        for i, action in enumerate(legal_actions):
+            root.children[action].prior_prob = (
+                root.children[action].prior_prob * (1 - exploration_fraction)
+                + noise[i] * exploration_fraction
+            )
+
+        # Simulation loop
+        for sim in range(self.num_simulations):
+            node = root
+            state = self.game.clone_state(initial_state)
+
+            # Selection
             while node.is_expanded():
                 action, node = self._select_child(node)
-                state = self.game.get_next_state(state, action) # Play selected move
+                state = self.game.get_next_state(state, action)
+            
+            is_terminal, value = self.game.get_reward_and_terminal(state)
 
-            # Check game over
-            is_gameover, value = self.game.get_reward_and_terminal(state)
-
-            if not is_gameover:
+            if not is_terminal:
+                # Evaluation and Expansion
                 board_tensor, meta_tensor, legal_mask = self.game.prepare_inputs(state)
-
                 with torch.no_grad():
                     self.model.eval()
                     policy_logits, value_tensor = self.model(board_tensor, meta_tensor, legal_mask)
-
+                
                 value = value_tensor.item()
-
-                # Convert logits to probabilities using softmax
                 policy_probs = torch.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
 
-                # Filter legal actions to node
                 legal_actions = self.game.get_legal_actions(state)
                 action_probs = {a: policy_probs[a] for a in legal_actions}
-
-                # Expand node
                 node.expand(action_probs)
 
             # Backpropagate
             self._backpropagate(node, value)
+
+            # Early stopping
+            # If visited move is too far ahead of the others to catch up, CPU time will be saved
+            if sim > 0 and sim % 10 == 0:
+                visits = [child.visit_count for child in root.children.values()]
+                visits.sort(reverse=True)
+                if len(visits) >= 2:
+                    best_visits = visits[0]
+                    second_visits = visits[1]
+                    remaining_visits = self.num_simulations - sim
+
+                    if best_visits > second_visits + remaining_visits:
+                        # Second best visits count cannot catch up
+                        break
 
         # After all simulations return probability distribution, based on how often MCTS visited them
         action_visits = np.zeros(self.game.action_size)

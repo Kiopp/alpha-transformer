@@ -1,4 +1,5 @@
 import torch
+torch.cuda.set_per_process_memory_fraction(0.8, device=0) # Allocate maximum of 80% of available vram
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
@@ -37,10 +38,11 @@ def execute_episode(model, game, mcts_simulations=100):
         current_player = 1 if state.turn else -1
         train_examples.append([board_tensor, meta_tensor, legal_mask, pi, current_player])
         
-        if state.fullmove_number < 15:
-            action = np.random.choice(len(pi), p=pi)
-        else:
-            action = np.argmax(pi)
+        # Choose action based on temperature
+        tau = max(0.1, 1.0 - (state.fullmove_number / 30.0))
+        adjusted_pi = np.power(pi + 1e-8, 1.0 / tau)
+        adjusted_pi = adjusted_pi / np.sum(adjusted_pi) # re-normalize
+        action = np.random.choice(len(adjusted_pi), p=adjusted_pi)
             
         state = game.get_next_state(state, action)
         is_terminal, reward = game.get_reward_and_terminal(state)
@@ -77,7 +79,7 @@ def get_latest_checkpoint():
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, keep_last_n_checkpoints=5):
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=16, keep_last_n_checkpoints=5):
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     value_criterion = nn.MSELoss()
     
@@ -101,13 +103,22 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
         print("No previous checkpoints found. Starting fresh.")
         current_iter = 0
 
+    # Load buffer
+    buffer_path = "replay_buffer.pt"
+    if os.path.exists(buffer_path):
+        print(f"Loading replay buffer from {buffer_path}...")
+        # weights_only=False is required because the buffer contains lists and standard Python types
+        master_replay_buffer = torch.load(buffer_path, weights_only=False)
+        print(f"Successfully loaded {len(master_replay_buffer)} historical positions.")
+    else:
+        print("No existing replay buffer found. Starting with an empty buffer.")
+        master_replay_buffer = [] # Keep games played in previous iterations
+
     try:
         while True: # INFINITE LOOP
             print(f"\n======================================")
             print(f"     STARTING ITERATION {current_iter}")
             print(f"======================================")
-            
-            iteration_data = []
             
             # Step 1: Self-Play
             print(f"Playing {episodes_per_iter} games of self-play...")
@@ -115,16 +126,18 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
                 with torch.no_grad():
                     model.eval() 
                     episode_data = execute_episode(model, game)
-                    iteration_data.extend(episode_data)
-                if (e+1) % 5 == 0:
+                    master_replay_buffer.extend(episode_data)
+                if (e+1) % 2 == 0:
                     print(f"  Completed {e+1}/{episodes_per_iter} games...")
 
             # Step 2: Prepare Dataset
-            dataset = ChessDataset(iteration_data)
+            if len(master_replay_buffer) > 50000: 
+                master_replay_buffer = master_replay_buffer[-50000:] # Set limit for previous games remembered
+            dataset = ChessDataset(master_replay_buffer)
             dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
             
             # Step 3: Train
-            print(f"\nTraining network for {epochs} epochs on {len(iteration_data)} positions...")
+            print(f"\nTraining network for {epochs} epochs on {len(master_replay_buffer)} positions...")
             model.train()
             
             for epoch in range(epochs):
@@ -160,6 +173,9 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
             }
             torch.save(checkpoint, save_path)
             print(f"\n>>> Checkpoint saved: {save_path} <<<")
+            print(f"Saving replay buffer to disk...")
+            torch.save(master_replay_buffer, buffer_path)
+            print(">>> Replay buffer saved successfully. <<<")
 
             # Cleanup old checkpoints to save disk space
             old_checkpoint = f"chess_transformer_iter_{current_iter - keep_last_n_checkpoints}.pth"
@@ -174,6 +190,9 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
         print("\n\n" + "="*50)
         print(" TRAINING INTERRUPTED BY USER (Ctrl+C)")
         print("="*50)
+        print("Performing emergency save of current replay buffer...")
+        torch.save(master_replay_buffer, buffer_path)
+        print("Emergency save complete.")
         if current_iter > 0:
             print(f"Safe exit complete. You can resume later from: iter_{current_iter-1}.pth")
         else:
@@ -188,4 +207,4 @@ if __name__ == "__main__":
     
     # Starts the infinite training loop.
     # Press Ctrl+C in your terminal when you wake up to stop it safely!
-    train_alphazero(model, game, episodes_per_iter=20, epochs=4)
+    train_alphazero(model, game, episodes_per_iter=40, epochs=4)
