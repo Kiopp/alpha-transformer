@@ -11,9 +11,15 @@ import re
 from ChessGame import ChessGame
 from ChessPlayer import ChessTransformer
 from MCTS import MCTS
+import torch.multiprocessing as mp
+import signal
 
 os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # Since I use an amd gpu
 
+def init_worker():
+    """Forces child processes to ignore CTRL+C so the main process can handle it."""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    
 # --- Dataset ---
 class ChessDataset(Dataset):
     def __init__(self, experiences):
@@ -24,9 +30,29 @@ class ChessDataset(Dataset):
 
     def __getitem__(self, idx):
         board, meta, mask, pi, z = self.experiences[idx]
-        return board.squeeze(0), meta.squeeze(0), mask.squeeze(0), torch.tensor(pi, dtype=torch.float32), torch.tensor([z], dtype=torch.float32)
+        
+        # torch.as_tensor safely handles both old PyTorch tensors and new NumPy arrays.
+        board_t = torch.as_tensor(board, dtype=torch.long).cpu().squeeze()
+        meta_t = torch.as_tensor(meta, dtype=torch.float32).cpu().squeeze()
+        mask_t = torch.as_tensor(mask, dtype=torch.bool).cpu().squeeze()
+        
+        # pi and z don't have the batch dimension issue, but we standardize them anyway
+        pi_t = torch.as_tensor(pi, dtype=torch.float32).cpu().squeeze() 
+        z_t = torch.tensor([z], dtype=torch.float32)
+
+        return board_t, meta_t, mask_t, pi_t, z_t
 
 # --- Self-play generator ---
+def parallel_execute_episode(worker_args):
+    model, game, mcts_sims, worker_id = worker_args
+    
+    # Force this specific process to only use 1 CPU thread for tensor math
+    # so that the concurrent workers don't cause thread contention.
+    torch.set_num_threads(1) 
+    
+    # Run the exact same episode logic
+    return execute_episode(model, game, mcts_simulations=mcts_sims)
+
 def execute_episode(model, game, mcts_simulations=100):
     mcts = MCTS(model, game, num_simulations=mcts_simulations)
     state = game.get_initial_state()
@@ -36,7 +62,7 @@ def execute_episode(model, game, mcts_simulations=100):
         board_tensor, meta_tensor, legal_mask = game.prepare_inputs(state)
         pi = mcts.search(state)
         current_player = 1 if state.turn else -1
-        train_examples.append([board_tensor, meta_tensor, legal_mask, pi, current_player])
+        train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi, current_player])
         
         # Choose action based on temperature
         tau = max(0.1, 1.0 - (state.fullmove_number / 30.0))
@@ -79,7 +105,7 @@ def get_latest_checkpoint():
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=16, keep_last_n_checkpoints=5):
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=16, keep_last_n_checkpoints=5, num_workers=4):
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     value_criterion = nn.MSELoss()
     
@@ -121,14 +147,22 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=16, 
             print(f"======================================")
             
             # Step 1: Self-Play
-            print(f"Playing {episodes_per_iter} games of self-play...")
-            for e in range(episodes_per_iter):
-                with torch.no_grad():
-                    model.eval() 
-                    episode_data = execute_episode(model, game)
+            print(f"Playing {episodes_per_iter} games of self-play using {num_workers} CPU workers...")
+            
+            model.share_memory() # Share model memory between workers
+
+            # Prepare arguments for each worker
+            worker_tasks = [(model, game, 100, i) for i in range(episodes_per_iter)]
+            
+            episode_results = []
+            with mp.Pool(processes=num_workers, initializer=init_worker) as pool:
+                # pool.imap_unordered yields results as soon as any game finishes
+                for i, episode_data in enumerate(pool.imap_unordered(parallel_execute_episode, worker_tasks)):
+                    episode_results.append(episode_data)
                     master_replay_buffer.extend(episode_data)
-                if (e+1) % 2 == 0:
-                    print(f"  Completed {e+1}/{episodes_per_iter} games...")
+                    
+                    if (i + 1) % 5 == 0:
+                        print(f"  Completed {i + 1}/{episodes_per_iter} games...")
 
             # Step 2: Prepare Dataset
             if len(master_replay_buffer) > 50000: 
@@ -199,6 +233,8 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=16, 
             print("Exited before completing the first iteration.")
 
 if __name__ == "__main__":
+    mp.set_start_method('spawn', force=True)
+    mp.set_sharing_strategy('file_system')
     game = ChessGame()
     model = ChessTransformer(
         vocab_size=13, max_seq_len=64, num_actions=game.action_size, 
@@ -206,5 +242,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    # Press Ctrl+C in your terminal when you wake up to stop it safely!
-    train_alphazero(model, game, episodes_per_iter=40, epochs=4)
+    train_alphazero(model, game, episodes_per_iter=40, epochs=4, num_workers=4, batch_size=16)
