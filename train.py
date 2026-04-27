@@ -105,7 +105,7 @@ def get_latest_checkpoint():
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=16, keep_last_n_checkpoints=5, num_workers=4):
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4):
     optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     value_criterion = nn.MSELoss()
     
@@ -242,4 +242,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=40, epochs=4, num_workers=4, batch_size=16)
+    train_alphazero(model, game, episodes_per_iter=40, epochs=4, num_workers=4, batch_size=128)
