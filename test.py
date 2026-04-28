@@ -1,4 +1,6 @@
 import os
+#os.environ["HSA_OVERRIDE_GFX_VERSION"] = "11.0.0" # For my Ryzen AI 7 350 laptop
+os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # Since I use an amd gpu
 import argparse
 import random
 import torch
@@ -6,8 +8,6 @@ import chess
 from ChessGame import ChessGame
 from ChessPlayer import ChessTransformer
 from MCTS import MCTS
-
-os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # Since I use an amd gpu
 
 def print_board_with_labels(board):
     # Get the default string representation (8 lines of text)

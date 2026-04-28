@@ -1,3 +1,6 @@
+import os
+#os.environ["HSA_OVERRIDE_GFX_VERSION"] = "11.0.0" # For my Ryzen AI 7 350 laptop
+os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # Since I use an amd gpu
 import torch
 torch.cuda.set_per_process_memory_fraction(0.8, device=0) # Allocate maximum of 80% of available vram
 import torch.nn as nn
@@ -5,7 +8,6 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import random
-import os
 import glob
 import re
 from ChessGame import ChessGame
@@ -13,8 +15,6 @@ from ChessPlayer import ChessTransformer
 from MCTS import MCTS
 import torch.multiprocessing as mp
 import signal
-
-os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1" # Since I use an amd gpu
 
 def init_worker():
     """Forces child processes to ignore CTRL+C so the main process can handle it."""
