@@ -106,7 +106,7 @@ def get_latest_checkpoint():
 
 # --- Training loop ---
 def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4):
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)
     value_criterion = nn.MSELoss()
     
     # Check for existing saves to resume
@@ -176,6 +176,8 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             
             for epoch in range(epochs):
                 total_loss = 0
+                total_val_loss = 0
+                total_pol_loss = 0
                 for boards, metas, masks, target_pis, target_zs in dataloader:
                     boards, metas, masks = boards.to(game.device), metas.to(game.device), masks.to(game.device)
                     target_pis, target_zs = target_pis.to(game.device), target_zs.to(game.device)
@@ -195,8 +197,14 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
                     optimizer.step()
                     
                     total_loss += loss.item()
-                    
-                print(f"  Epoch {epoch+1}/{epochs} | Average Loss: {total_loss/len(dataloader):.4f}")
+                    total_val_loss += value_loss.item()
+                    total_pol_loss += policy_loss.item()
+                
+                # Print 
+                avg_loss = total_loss / len(dataloader)
+                avg_val = total_val_loss / len(dataloader)
+                avg_pol = total_pol_loss / len(dataloader)
+                print(f"  Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} (Value: {avg_val:.4f} | Policy: {avg_pol:.4f})")
 
             # Step 4: Save Checkpoint with Optimizer State
             save_path = f"chess_transformer_iter_{current_iter}.pth"
