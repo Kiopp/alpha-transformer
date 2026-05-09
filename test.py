@@ -101,7 +101,7 @@ def play_random_vs_ai(mcts, game):
     else:
         print("Result: Draw")
 
-def main():
+def main(model_type):
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Play against the AlphaZero Chess AI.")
     parser.add_argument("--model", type=str, default="chess_transformer_iter_0.pth", 
@@ -114,15 +114,26 @@ def main():
 
     game = ChessGame()
 
-    model = ChessTransformer(
-        vocab_size=13,            
-        max_seq_len=64,           
-        num_actions=game.action_size, 
-        num_meta_features=6,      
-        embed_dim=128,            
-        num_heads=8,
-        num_blocks=6
-    ).to(game.device)
+    if model_type == "small":
+        model = ChessTransformer(
+            vocab_size=13,            
+            max_seq_len=64,           
+            num_actions=game.action_size, 
+            num_meta_features=6,      
+            embed_dim=128,            
+            num_heads=8,
+            num_blocks=6
+        ).to(game.device)
+    elif model_type == "medium":
+        model = ChessTransformer(
+            vocab_size=13,            
+            max_seq_len=64,           
+            num_actions=game.action_size, 
+            num_meta_features=6,      
+            embed_dim=256,            
+            num_heads=8,
+            num_blocks=10
+        ).to(game.device)
 
     # --- UPDATED MODEL LOADING CODE ---
     if os.path.exists(args.model):
@@ -154,7 +165,7 @@ def main():
         play_random_vs_ai(mcts, game)
 
 if __name__ == "__main__":
-    main()
+    main("medium")
 
 # Play command
 # python test.py --model chess_transformer_iter_0.pth --mode human --sims 400
