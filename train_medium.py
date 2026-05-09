@@ -65,8 +65,10 @@ def execute_episode(model, game, mcts_simulations=100):
         train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi, current_player])
         
         # Choose action based on temperature
-        tau = max(0.1, 1.0 - (state.fullmove_number / 30.0))
-        adjusted_pi = np.power(pi + 1e-8, 1.0 / tau)
+        tau = max(0.6, 1.2 - (state.fullmove_number / 100.0))
+        valid_moves_mask = pi > 0
+        adjusted_pi = np.zeros_like(pi)
+        adjusted_pi[valid_moves_mask] = np.power(pi[valid_moves_mask], 1.0 / tau)
         adjusted_pi = adjusted_pi / np.sum(adjusted_pi) # re-normalize
         action = np.random.choice(len(adjusted_pi), p=adjusted_pi)
             
@@ -87,9 +89,9 @@ def execute_episode(model, game, mcts_simulations=100):
             return final_data
 
 # --- Find latest checkpoint ---
-def get_latest_checkpoint():
+def get_latest_checkpoint(filename):
     """Scans the directory for the latest checkpoint file."""
-    files = glob.glob("chess_mid_transformer_iter_*.pth")
+    files = glob.glob(f"{filename}_iter_*.pth")
     if not files:
         return None, -1
     
@@ -105,16 +107,13 @@ def get_latest_checkpoint():
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, keep_last_n_checkpoints=5, num_workers=4):
-    optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-4)
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4):
+    optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     value_criterion = nn.MSELoss()
-
-    save_path = f"chess_medium_iter_{current_iter}.pth"
-    buffer_path = "replay_buffer_mid.pt"
-    old_checkpoint = f"chess_medium_iter_{current_iter - keep_last_n_checkpoints}.pth"
+    filename = "chess_medium"
     
     # Check for existing saves to resume
-    latest_file, last_iter = get_latest_checkpoint()
+    latest_file, last_iter = get_latest_checkpoint(filename)
     
     if latest_file:
         print(f"Found checkpoint: {latest_file}. Resuming training...")
@@ -134,6 +133,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
         current_iter = 0
 
     # Load buffer
+    buffer_path = "replay_buffer.pt"
     if os.path.exists(buffer_path):
         print(f"Loading replay buffer from {buffer_path}...")
         # weights_only=False is required because the buffer contains lists and standard Python types
@@ -155,7 +155,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
             model.share_memory() # Share model memory between workers
 
             # Prepare arguments for each worker
-            worker_tasks = [(model, game, 100, i) for i in range(episodes_per_iter)]
+            worker_tasks = [(model, game, 200, i) for i in range(episodes_per_iter)]
             
             episode_results = []
             with mp.Pool(processes=num_workers, initializer=init_worker) as pool:
@@ -168,7 +168,8 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
                         print(f"  Completed {i + 1}/{episodes_per_iter} games...")
 
             # Step 2: Prepare Dataset
-            if len(master_replay_buffer) > 50000: 
+            if len(master_replay_buffer) > 50000:
+                print(f"Flushing {len(master_replay_buffer)-50000} positions from replay buffer...") 
                 master_replay_buffer = master_replay_buffer[-50000:] # Set limit for previous games remembered
             dataset = ChessDataset(master_replay_buffer)
             dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -210,6 +211,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
                 print(f"  Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} (Value: {avg_val:.4f} | Policy: {avg_pol:.4f})")
 
             # Step 4: Save Checkpoint with Optimizer State
+            save_path = f"{filename}_iter_{current_iter}.pth"
             checkpoint = {
                 'iteration': current_iter,
                 'model_state_dict': model.state_dict(),
@@ -222,6 +224,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=64, 
             print(">>> Replay buffer saved successfully. <<<")
 
             # Cleanup old checkpoints to save disk space
+            old_checkpoint = f"{filename}_iter_{current_iter - keep_last_n_checkpoints}.pth"
             if os.path.exists(old_checkpoint):
                 os.remove(old_checkpoint)
                 print(f"Deleted old checkpoint: {old_checkpoint}")
@@ -251,4 +254,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=40, epochs=4, num_workers=4)
+    train_alphazero(model, game, episodes_per_iter=40, epochs=4, batch_size=128, num_workers=4)
