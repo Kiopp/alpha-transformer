@@ -78,8 +78,20 @@ class MCTS:
             
             is_terminal, value = self.game.get_reward_and_terminal(state)
 
-            if not is_terminal:
-                # Evaluation and Expansion
+            is_terminal, absolute_reward = self.game.get_reward_and_terminal(state)
+
+            if is_terminal:
+                # Calculate relative value for the player whose turn it currently is
+                current_player_is_white = state.turn
+                
+                if absolute_reward == 0.0:
+                    value = 0.0
+                elif (absolute_reward == 1.0 and current_player_is_white) or (absolute_reward == -1.0 and not current_player_is_white):
+                    value = 1.0
+                else:
+                    value = -1.0
+            else:
+                # Evaluation and Expansion (NN outputs relative value)
                 board_tensor, meta_tensor, legal_mask = self.game.prepare_inputs(state)
                 with torch.no_grad():
                     self.model.eval()

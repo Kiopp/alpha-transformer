@@ -44,21 +44,19 @@ class ChessGame:
 
     def get_reward_and_terminal(self, state):
         """
-        Returns (is_terminal, reward)
-        Reward: +1 for win, -1 for loss, 0 for draw.
-        Crucial: The reward is from the perspective of the player who JUST moved.
+        Returns (is_terminal, absolute_reward)
+        Reward: +1.0 for White win, -1.0 for Black win, 0.0 for draw.
         """
         if not state.is_game_over():
             return False, 0.0
 
         result = state.result()
         if result == '1/2-1/2':
-            return True, 0.0  # Draw
-            
-        # If the game is over and it's not a draw, it's Checkmate.
-        # Since 'state.turn' tells us who is ABOUT to move, the person 
-        # who just played (and delivered checkmate) is the opposite player.
-        return True, 1.0 
+            return True, 0.0  
+        elif result == '1-0':
+            return True, 1.0  # White won
+        else:
+            return True, -1.0 # Black won
 
     def prepare_inputs(self, state):
         """

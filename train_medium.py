@@ -79,12 +79,15 @@ def execute_episode(model, game, mcts_simulations=100):
             final_data = []
             for example in train_examples:
                 is_white_turn = (example[4] == 1)
-                if reward == 0:
+                
+                if reward == 0.0:
                     z = 0.0
-                elif (reward == 1 and is_white_turn) or (reward == -1 and not is_white_turn):
-                    z = 1.0
+                # If White won and it was White's turn OR Black won and it was Black's turn
+                elif (reward == 1.0 and is_white_turn) or (reward == -1.0 and not is_white_turn):
+                    z = 1.0  # The player who made this move won the game
                 else:
-                    z = -1.0 
+                    z = -1.0 # The player who made this move lost the game
+                    
                 final_data.append((example[0], example[1], example[2], example[3], z))
             return final_data
 
@@ -107,7 +110,7 @@ def get_latest_checkpoint(filename):
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4):
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4, num_sims=100):
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     value_criterion = nn.MSELoss()
     filename = "chess_medium"
@@ -150,12 +153,12 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             print(f"======================================")
             
             # Step 1: Self-Play
-            print(f"Playing {episodes_per_iter} games of self-play using {num_workers} CPU workers...")
+            print(f"Playing {episodes_per_iter} games of self-play using {num_workers} CPU workers with {num_sims} simulations...")
             
             model.share_memory() # Share model memory between workers
 
             # Prepare arguments for each worker
-            worker_tasks = [(model, game, 200, i) for i in range(episodes_per_iter)]
+            worker_tasks = [(model, game, num_sims, i) for i in range(episodes_per_iter)]
             
             episode_results = []
             with mp.Pool(processes=num_workers, initializer=init_worker) as pool:
@@ -254,4 +257,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=40, epochs=4, batch_size=128, num_workers=4)
+    train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, num_workers=6, num_sims=200)
