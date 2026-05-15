@@ -40,23 +40,54 @@ class ChessGame:
 
     def get_legal_actions(self, state):
         """Returns a list of integer indices representing legal moves."""
-        return [self._move_to_action(move) for move in state.legal_moves]
+        return list(set([self._move_to_action(move) for move in state.legal_moves]))
 
     def get_reward_and_terminal(self, state):
         """
         Returns (is_terminal, absolute_reward)
         Reward: +1.0 for White win, -1.0 for Black win, 0.0 for draw.
         """
-        if not state.is_game_over():
-            return False, 0.0
+        if state.is_game_over():
+            result = state.result()
+            if result == '1/2-1/2':
+                return True, 0.0  
+            elif result == '1-0':
+                return True, 1.0  # White won
+            else:
+                return True, -1.0 # Black won
+        
+        # Aggressive Draw Claiming
+        if state.can_claim_draw():
+            return True, 0.0
+        '''
+        # Stop the drunken monkey!
+        if state.fullmove_number > 100:
+            # Instead of a draw, award the win to whoever has more material!
+            # Standard chess piece values: P=1, N=3, B=3, R=5, Q=9
+            white_material = len(state.pieces(chess.PAWN, chess.WHITE)) * 1 + \
+                             len(state.pieces(chess.KNIGHT, chess.WHITE)) * 3 + \
+                             len(state.pieces(chess.BISHOP, chess.WHITE)) * 3 + \
+                             len(state.pieces(chess.ROOK, chess.WHITE)) * 5 + \
+                             len(state.pieces(chess.QUEEN, chess.WHITE)) * 9
+                             
+            black_material = len(state.pieces(chess.PAWN, chess.BLACK)) * 1 + \
+                             len(state.pieces(chess.KNIGHT, chess.BLACK)) * 3 + \
+                             len(state.pieces(chess.BISHOP, chess.BLACK)) * 3 + \
+                             len(state.pieces(chess.ROOK, chess.BLACK)) * 5 + \
+                             len(state.pieces(chess.QUEEN, chess.BLACK)) * 9
 
-        result = state.result()
-        if result == '1/2-1/2':
-            return True, 0.0  
-        elif result == '1-0':
-            return True, 1.0  # White won
-        else:
-            return True, -1.0 # Black won
+            if white_material > black_material:
+                return True, 1.0  # White wins by decision
+            elif black_material > white_material:
+                return True, -1.0 # Black wins by decision
+            else:
+                return True, 0.0  # True draw
+        '''
+        # Over 200 moves in a single game is a draw
+        if state.fullmove_number > 200:
+            return True, 0.0
+
+        return False, 0.0
 
     def prepare_inputs(self, state):
         """
