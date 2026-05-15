@@ -31,7 +31,7 @@ class ChessTransformer(nn.Module):
         self.final_norm = nn.LayerNorm(embed_dim)
 
         # +1 to max_seq_len because meta_data token is prepended to the gameboard tokens
-        flattened_dim = embed_dim * (max_seq_len + 1)
+        flattened_dim = embed_dim
         
         # Policy head predicts move probabilities
         self.policy_head = nn.Linear(flattened_dim, num_actions)
@@ -75,7 +75,7 @@ class ChessTransformer(nn.Module):
         x = self.final_norm(x)
 
         # Flatten sequence
-        x_flat = x.view(batch_size, -1)
+        x_flat = x[:, 0, :]
 
         # Pass through output heads
         policy_logits = self.policy_head(x_flat)

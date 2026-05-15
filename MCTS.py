@@ -32,11 +32,12 @@ class Node:
         return len(self.children) > 0
 
 class MCTS:
-    def __init__(self, model, game, num_simulations=800, c_puct=1.0):
+    def __init__(self, model, game, num_simulations=800, c_puct=1.0, self_play=True):
         self.model = model
         self.game = game
         self.num_simulations = num_simulations
         self.c_puct = c_puct # Controls exploration vs exploitation
+        self.self_play = self_play 
 
     def search(self, initial_state):
         root = Node(prior_prob=1.0)
@@ -52,19 +53,20 @@ class MCTS:
             action_probs = {a: policy_probs[a] for a in legal_actions}
         root.expand(action_probs)
 
-        # Add Dirichlet noise to enable more exploration
-        dirichlet_alpha = 0.3
-        exploration_fraction = 0.25
+        if self.self_play:
+            # Add Dirichlet noise to enable more exploration
+            dirichlet_alpha = 0.3
+            exploration_fraction = 0.25
 
-        # Generate noise
-        noise = np.random.dirichlet([dirichlet_alpha] * len(legal_actions))
+            # Generate noise
+            noise = np.random.dirichlet([dirichlet_alpha] * len(legal_actions))
 
-        # Blend noise into root prior probabilities
-        for i, action in enumerate(legal_actions):
-            root.children[action].prior_prob = (
-                root.children[action].prior_prob * (1 - exploration_fraction)
-                + noise[i] * exploration_fraction
-            )
+            # Blend noise into root prior probabilities
+            for i, action in enumerate(legal_actions):
+                root.children[action].prior_prob = (
+                    root.children[action].prior_prob * (1 - exploration_fraction)
+                    + noise[i] * exploration_fraction
+                )
 
         # Simulation loop
         for sim in range(self.num_simulations):
@@ -109,7 +111,7 @@ class MCTS:
 
             # Early stopping
             # If visited move is too far ahead of the others to catch up, CPU time will be saved
-            if sim > 0 and sim % 10 == 0:
+            if not self.self_play and (sim > 0 and sim % 10 == 0):
                 visits = [child.visit_count for child in root.children.values()]
                 visits.sort(reverse=True)
                 if len(visits) >= 2:

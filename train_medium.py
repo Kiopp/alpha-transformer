@@ -1,3 +1,7 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 import torch
 torch.cuda.set_per_process_memory_fraction(0.8, device=0) # Allocate maximum of 80% of available vram
 import torch.nn as nn
@@ -5,7 +9,6 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import random
-import os
 import glob
 import re
 from ChessGame import ChessGame
@@ -62,10 +65,14 @@ def execute_episode(model, game, mcts_simulations=100):
         board_tensor, meta_tensor, legal_mask = game.prepare_inputs(state)
         pi = mcts.search(state)
         current_player = 1 if state.turn else -1
-        train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi, current_player])
+        train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi.astype(np.float32), current_player])
         
         # Choose action based on temperature
-        tau = max(0.6, 1.2 - (state.fullmove_number / 100.0))
+        #tau = max(0., 1.2 - (state.fullmove_number / 100.0))
+        if state.fullmove_number <= 15:
+            tau = 1.0 # Discover new openings
+        else:
+            tau = 0.05 # Play good
         valid_moves_mask = pi > 0
         adjusted_pi = np.zeros_like(pi)
         adjusted_pi[valid_moves_mask] = np.power(pi[valid_moves_mask], 1.0 / tau)
@@ -89,7 +96,7 @@ def execute_episode(model, game, mcts_simulations=100):
                     z = -1.0 # The player who made this move lost the game
                     
                 final_data.append((example[0], example[1], example[2], example[3], z))
-            return final_data
+            return (final_data, reward)
 
 # --- Find latest checkpoint ---
 def get_latest_checkpoint(filename):
@@ -114,6 +121,9 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     value_criterion = nn.MSELoss()
     filename = "chess_medium"
+
+    # Guard agains overfitting on value loss
+    value_loss_weight = 0.5
     
     # Check for existing saves to resume
     latest_file, last_iter = get_latest_checkpoint(filename)
@@ -146,36 +156,73 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
         print("No existing replay buffer found. Starting with an empty buffer.")
         master_replay_buffer = [] # Keep games played in previous iterations
 
+    # Setup cpu isolation for workers
+    print("Setting up CPU isolation for self-play workers...")
+
+    # Create CPU-bound game environment to avoid GPU allocation
+    cpu_game = ChessGame()
+    cpu_game.device = torch.device('cpu')
+
+    # CPU replica of the model
+    cpu_model = ChessTransformer(
+        vocab_size=13, max_seq_len=64, num_actions=game.action_size, 
+        num_meta_features=6, embed_dim=256, num_heads=8, num_blocks=10
+    ).to('cpu')
+    cpu_model.share_memory()
+
     try:
         while True: # INFINITE LOOP
             print(f"\n======================================")
             print(f"     STARTING ITERATION {current_iter}")
             print(f"======================================")
+
+            # Sync weights to CPU model
+            print("Syncing updated GPU weights to CPU model for self-play...")
+            cpu_model.load_state_dict(model.state_dict())
+            cpu_model.eval()
             
             # Step 1: Self-Play
             print(f"Playing {episodes_per_iter} games of self-play using {num_workers} CPU workers with {num_sims} simulations...")
-            
-            model.share_memory() # Share model memory between workers
 
             # Prepare arguments for each worker
-            worker_tasks = [(model, game, num_sims, i) for i in range(episodes_per_iter)]
+            worker_tasks = [(cpu_model, cpu_game, num_sims, i) for i in range(episodes_per_iter)]
             
-            episode_results = []
+            outcomes = {"White Wins": 0, "Black Wins": 0, "Draws": 0}
+            total_plies = 0
             with mp.Pool(processes=num_workers, initializer=init_worker) as pool:
                 # pool.imap_unordered yields results as soon as any game finishes
-                for i, episode_data in enumerate(pool.imap_unordered(parallel_execute_episode, worker_tasks)):
-                    episode_results.append(episode_data)
+                for i, result in enumerate(pool.imap_unordered(parallel_execute_episode, worker_tasks)):
+                    episode_data, absolute_reward = result
+                    
+                    # Update stats
+                    total_plies += len(episode_data)
+                    if absolute_reward == 1.0: 
+                        outcomes["White Wins"] += 1
+                    elif absolute_reward == -1.0: 
+                        outcomes["Black Wins"] += 1
+                    else: 
+                        outcomes["Draws"] += 1
+
+                    # Add to replay buffer
                     master_replay_buffer.extend(episode_data)
                     
                     if (i + 1) % 5 == 0:
                         print(f"  Completed {i + 1}/{episodes_per_iter} games...")
 
             # Step 2: Prepare Dataset
-            if len(master_replay_buffer) > 50000:
-                print(f"Flushing {len(master_replay_buffer)-50000} positions from replay buffer...") 
-                master_replay_buffer = master_replay_buffer[-50000:] # Set limit for previous games remembered
+            if len(master_replay_buffer) > 250000:
+                print(f"Flushing {len(master_replay_buffer)-250000} positions from replay buffer...") 
+                master_replay_buffer = master_replay_buffer[-250000:] # Set limit for previous games remembered
             dataset = ChessDataset(master_replay_buffer)
             dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+            # Display self-play stats
+            avg_len = total_plies / episodes_per_iter
+            print(f"\n--- Self-play stats ---")
+            print(f"Outcomes: {outcomes}")
+            print(f"Avg Game Length: {avg_len:.1f} plies")
+            print(f"Buffer Size: {len(master_replay_buffer)}")
+            print(f"-------------------------------\n")
             
             # Step 3: Train
             print(f"\nTraining mid-sized network for {epochs} epochs on {len(master_replay_buffer)} positions...")
@@ -194,10 +241,10 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
                     policy_logits, values = model(boards, metas, masks)
                     value_loss = value_criterion(values, target_zs)
                     
-                    log_probs = torch.nn.functional.log_softmax(policy_logits, dim=-1)
-                    policy_loss = -torch.sum(target_pis * log_probs) / target_pis.size(0) 
+                    policy_loss = torch.nn.functional.cross_entropy(policy_logits, target_pis)
                     
-                    loss = value_loss + policy_loss
+                    loss = (value_loss * value_loss_weight) + policy_loss
+
                     loss.backward()
                     # Clip gradients to a maximum norm of 1.0 to prevent exploding gradients
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -257,4 +304,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, num_workers=6, num_sims=200)
+    train_alphazero(model, game, episodes_per_iter=60, epochs=1, batch_size=256, num_workers=6, num_sims=400)
