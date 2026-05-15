@@ -9,7 +9,16 @@ from ChessGame import ChessGame
 from ChessPlayer import ChessTransformer
 from MCTS import MCTS
 
-def print_board_with_labels(board):
+def print_board_with_labels(board, message=None):
+    # Clear the terminal screen first
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
+    # Print the last action or status message at the very top
+    if message:
+        print(f"\n>> {message}")
+    else:
+        print()
+
     # Get the default string representation (8 lines of text)
     board_str = str(board)
     lines = board_str.split('\n')
@@ -26,19 +35,19 @@ def print_board_with_labels(board):
 def play_human_vs_ai(mcts, game):
     board = game.get_initial_state()
     human_turn = True # Human plays White (True), AI plays Black (False)
-
-    print("Game Start! Enter moves in Standard Algebraic Notation (e.g., 'e4', 'Nf3').")
+    status_message = "Game Start! Enter moves in SAN (e.g., 'e4', 'Nf3')."
     
     while not board.is_game_over():
-        print_board_with_labels(board)
+        print_board_with_labels(board, status_message)
         
         if human_turn:
             move_str = input("Your move: ")
             try:
                 board.push_san(move_str)
                 human_turn = False
+                status_message = f"You played: {move_str}"
             except ValueError:
-                print("Invalid move. Try again.")
+                status_message = "Invalid move. Try again."
         else:
             print("AI is thinking...")
             mcts_probs = mcts.search(board)
@@ -50,21 +59,19 @@ def play_human_vs_ai(mcts, game):
                 ai_move = list(board.legal_moves)[0]
 
             board.push(ai_move)
-            print(f"AI plays: {ai_move}")
+            status_message = f"AI plays: {ai_move}"
             human_turn = True
 
-    print("\nGame Over!")
-    print_board_with_labels(board)
-    print("Result:", board.result())
+    result = board.result()
+    print_board_with_labels(board, f"Game Over! Result: {board.result()}")
 
 def play_random_vs_ai(mcts, game):
     board = game.get_initial_state()
     is_random_white = True 
-
-    print("Game Start: Random (White) vs AI (Black)")
+    status_message = "Game Start: Random (White) vs AI (Black)"
     
     while not board.is_game_over():
-        print_board_with_labels(board)
+        print_board_with_labels(board, status_message)
         current_turn_is_white = (board.turn == chess.WHITE)
         
         if (is_random_white and current_turn_is_white) or (not is_random_white and not current_turn_is_white):
@@ -73,7 +80,7 @@ def play_random_vs_ai(mcts, game):
             random_action = random.choice(available_actions)
             move = game._action_to_move(random_action, board)
             board.push(move)
-            print(f"Random played: {move}")
+            status_message = f"Random played: {move}"
             
         else:
             print("AI is thinking...")
@@ -84,15 +91,11 @@ def play_random_vs_ai(mcts, game):
             if ai_move not in board.legal_moves:
                 print("Warning: AI suggested illegal move. Defaulting to first legal move.")
                 ai_move = list(board.legal_moves)[0]
-
+            
             board.push(ai_move)
-            print(f"AI plays: {ai_move}")
-
-    print("\nGame Over!")
-    print_board_with_labels(board)
-    
+            status_message = f"AI plays: {ai_move}"
     result = board.result()
-    print(f"Final Result: {result}")
+    print_board_with_labels(board, f"Game Over! Result: {board.result()}")
     
     if result == "1-0":
         print("Winner: Random (White)")
@@ -103,11 +106,10 @@ def play_random_vs_ai(mcts, game):
 
 def play_ai_vs_ai(mcts_white, mcts_black, game):
     board = game.get_initial_state()
-
-    print("Game Start: AI (White) vs AI (Black)")
+    status_message = "Game Start: AI (White) vs AI (Black)"
     
     while not board.is_game_over():
-        print_board_with_labels(board)
+        print_board_with_labels(board, status_message)
         current_turn_is_white = (board.turn == chess.WHITE)
         
         color_str = "White" if current_turn_is_white else "Black"
@@ -125,13 +127,10 @@ def play_ai_vs_ai(mcts_white, mcts_black, game):
             ai_move = list(board.legal_moves)[0]
 
         board.push(ai_move)
-        print(f"{color_str} AI plays: {ai_move}")
+        status_message = f"{color_str} AI plays: {ai_move}"
 
-    print("\nGame Over!")
-    print_board_with_labels(board)
-    
     result = board.result()
-    print(f"Final Result: {result}")
+    print_board_with_labels(board, f"Game Over! Result: {board.result()}")
     
     if result == "1-0":
         print("Winner: AI (White)")
@@ -209,8 +208,8 @@ def main():
         print("\n--- Loading Black AI ---")
         model_black = load_model(args.model_black, args.size_black, game)
         
-        mcts_white = MCTS(model_white, game, num_simulations=args.sims)
-        mcts_black = MCTS(model_black, game, num_simulations=args.sims)
+        mcts_white = MCTS(model_white, game, num_simulations=args.sims, self_play=False)
+        mcts_black = MCTS(model_black, game, num_simulations=args.sims, self_play=False)
         
         play_ai_vs_ai(mcts_white, mcts_black, game)
     else:
@@ -218,7 +217,7 @@ def main():
         # We'll just load the model_black config to act as the single AI opponent.
         print("--- Loading AI Opponent (Black) ---")
         model_black = load_model(args.model_black, args.size_black, game)
-        mcts_black = MCTS(model_black, game, num_simulations=args.sims)
+        mcts_black = MCTS(model_black, game, num_simulations=args.sims, self_play=False)
         
         if args.mode == "human":
             play_human_vs_ai(mcts_black, game)
