@@ -59,9 +59,9 @@ class ChessGame:
         # Aggressive Draw Claiming
         if state.can_claim_draw():
             return True, 0.0
-        '''
+        
         # Stop the drunken monkey!
-        if state.fullmove_number > 100:
+        if state.fullmove_number > 150:
             # Instead of a draw, award the win to whoever has more material!
             # Standard chess piece values: P=1, N=3, B=3, R=5, Q=9
             white_material = len(state.pieces(chess.PAWN, chess.WHITE)) * 1 + \
@@ -82,7 +82,7 @@ class ChessGame:
                 return True, -1.0 # Black wins by decision
             else:
                 return True, 0.0  # True draw
-        '''
+        
         # Over 200 moves in a single game is a draw
         if state.fullmove_number > 200:
             return True, 0.0

@@ -69,7 +69,7 @@ def execute_episode(model, game, mcts_simulations=100):
         
         # Choose action based on temperature
         #tau = max(0., 1.2 - (state.fullmove_number / 100.0))
-        if state.fullmove_number <= 15:
+        if state.fullmove_number <= 30:
             tau = 1.0 # Discover new openings
         else:
             tau = 0.05 # Play good
@@ -209,13 +209,6 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
                     if (i + 1) % 5 == 0:
                         print(f"  Completed {i + 1}/{episodes_per_iter} games...")
 
-            # Step 2: Prepare Dataset
-            if len(master_replay_buffer) > 250000:
-                print(f"Flushing {len(master_replay_buffer)-250000} positions from replay buffer...") 
-                master_replay_buffer = master_replay_buffer[-250000:] # Set limit for previous games remembered
-            dataset = ChessDataset(master_replay_buffer)
-            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
             # Display self-play stats
             avg_len = total_plies / episodes_per_iter
             print(f"\n--- Self-play stats ---")
@@ -223,9 +216,19 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             print(f"Avg Game Length: {avg_len:.1f} plies")
             print(f"Buffer Size: {len(master_replay_buffer)}")
             print(f"-------------------------------\n")
+
+            # Step 2: Prepare Dataset
+            if len(master_replay_buffer) > 250000:
+                print(f"Flushing {len(master_replay_buffer)-250000} positions from replay buffer...") 
+                master_replay_buffer = master_replay_buffer[-250000:] # Set limit for previous games remembered
+            
+            sample_size = min(len(master_replay_buffer), 50000) # Only train on 50k positions per iteration to avoid overfitting
+            sampled_buffer = random.sample(master_replay_buffer, sample_size)
+            dataset = ChessDataset(sampled_buffer)
+            dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
             
             # Step 3: Train
-            print(f"\nTraining mid-sized network for {epochs} epochs on {len(master_replay_buffer)} positions...")
+            print(f"\nTraining mid-sized network for {epochs} epochs on {len(sampled_buffer)} / {len(master_replay_buffer)} positions...")
             model.train()
             
             for epoch in range(epochs):
@@ -304,4 +307,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=60, epochs=1, batch_size=256, num_workers=6, num_sims=400)
+    train_alphazero(model, game, episodes_per_iter=60, epochs=2, batch_size=256, num_workers=6, num_sims=400)
