@@ -117,7 +117,7 @@ def get_latest_checkpoint(filename):
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4, num_sims=100):
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4, num_sims=100, max_buffer_size=50000, max_buffer_sample=10000):
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     value_criterion = nn.MSELoss()
     filename = "chess_medium"
@@ -218,11 +218,11 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             print(f"-------------------------------\n")
 
             # Step 2: Prepare Dataset
-            if len(master_replay_buffer) > 250000:
-                print(f"Flushing {len(master_replay_buffer)-250000} positions from replay buffer...") 
-                master_replay_buffer = master_replay_buffer[-250000:] # Set limit for previous games remembered
+            if len(master_replay_buffer) > max_buffer_size:
+                print(f"Flushing {len(master_replay_buffer)-max_buffer_size} positions from replay buffer...") 
+                master_replay_buffer = master_replay_buffer[-max_buffer_size:] # Set limit for previous games remembered
             
-            sample_size = min(len(master_replay_buffer), 50000) # Only train on 50k positions per iteration to avoid overfitting
+            sample_size = min(len(master_replay_buffer), max_buffer_sample) # Only train on a subset of positions per iteration to avoid overfitting
             sampled_buffer = random.sample(master_replay_buffer, sample_size)
             dataset = ChessDataset(sampled_buffer)
             dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -307,4 +307,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=60, epochs=2, batch_size=256, num_workers=6, num_sims=400)
+    train_alphazero(model, game, episodes_per_iter=60, epochs=2, batch_size=256, num_workers=6, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000)
