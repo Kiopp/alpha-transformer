@@ -83,6 +83,14 @@ def execute_episode(model, game, mcts_simulations=100):
         is_terminal, reward = game.get_reward_and_terminal(state)
         
         if is_terminal:
+            if reward != 0.0:
+                if state.is_checkmate():
+                    reason = "Checkmate"
+                else:
+                    reason = "Tiebreaker"
+            else:
+                reason = "Draw"
+
             final_data = []
             for example in train_examples:
                 is_white_turn = (example[4] == 1)
@@ -96,7 +104,7 @@ def execute_episode(model, game, mcts_simulations=100):
                     z = -1.0 # The player who made this move lost the game
                     
                 final_data.append((example[0], example[1], example[2], example[3], z))
-            return (final_data, reward)
+            return (final_data, reward, reason)
 
 # --- Find latest checkpoint ---
 def get_latest_checkpoint(filename):
@@ -188,18 +196,21 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             worker_tasks = [(cpu_model, cpu_game, num_sims, i) for i in range(episodes_per_iter)]
             
             outcomes = {"White Wins": 0, "Black Wins": 0, "Draws": 0}
+            win_methods = {"Checkmate": 0, "Tiebreaker": 0}
             total_plies = 0
             with mp.Pool(processes=num_workers, initializer=init_worker) as pool:
                 # pool.imap_unordered yields results as soon as any game finishes
                 for i, result in enumerate(pool.imap_unordered(parallel_execute_episode, worker_tasks)):
-                    episode_data, absolute_reward = result
+                    episode_data, absolute_reward, reason = result
                     
                     # Update stats
                     total_plies += len(episode_data)
                     if absolute_reward == 1.0: 
                         outcomes["White Wins"] += 1
+                        win_methods[reason] += 1
                     elif absolute_reward == -1.0: 
                         outcomes["Black Wins"] += 1
+                        win_methods[reason] += 1
                     else: 
                         outcomes["Draws"] += 1
 
@@ -213,6 +224,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             avg_len = total_plies / episodes_per_iter
             print(f"\n--- Self-play stats ---")
             print(f"Outcomes: {outcomes}")
+            print(f"Win Methods: Checkmates: {win_methods['Checkmate']} | Tiebreakers: {win_methods['Tiebreaker']}")
             print(f"Avg Game Length: {avg_len:.1f} plies")
             print(f"Buffer Size: {len(master_replay_buffer)}")
             print(f"-------------------------------\n")
@@ -228,7 +240,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
             
             # Step 3: Train
-            print(f"\nTraining mid-sized network for {epochs} epochs on {len(sampled_buffer)} / {len(master_replay_buffer)} positions...")
+            print(f"Training mid-sized network for {epochs} epochs on {len(sampled_buffer)} / {len(master_replay_buffer)} positions...")
             model.train()
             
             for epoch in range(epochs):
