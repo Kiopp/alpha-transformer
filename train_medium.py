@@ -89,7 +89,17 @@ def execute_episode(model, game, mcts_simulations=100):
                 else:
                     reason = "Tiebreaker"
             else:
-                reason = "Draw"
+                # Find specific draw trigger
+                if state.can_claim_fifty_moves() or state.is_fifty_moves():
+                    reason = "Draw_50_Move"
+                elif state.can_claim_threefold_repetition() or state.is_repetition(3):
+                    reason = "Draw_Threefold"
+                elif state.is_insufficient_material():
+                    reason = "Draw_Insufficient"
+                elif state.is_stalemate():
+                    reason = "Draw_Stalemate"
+                else:
+                    reason = "Draw_Max_Horizon"
 
             final_data = []
             for example in train_examples:
@@ -197,6 +207,7 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
             
             outcomes = {"White Wins": 0, "Black Wins": 0, "Draws": 0}
             win_methods = {"Checkmate": 0, "Tiebreaker": 0}
+            draw_reasons = {"Draw_50_Move": 0, "Draw_Threefold": 0, "Draw_Insufficient": 0, "Draw_Stalemate": 0, "Draw_Max_Horizon": 0}
             total_plies = 0
             with mp.Pool(processes=num_workers, initializer=init_worker) as pool:
                 # pool.imap_unordered yields results as soon as any game finishes
@@ -213,6 +224,10 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
                         win_methods[reason] += 1
                     else: 
                         outcomes["Draws"] += 1
+                        if reason in draw_reasons:
+                            draw_reasons[reason] += 1
+                        else:
+                            draw_reasons["Draw_Max_Horizon"] += 1 # Fallback for edge cases
 
                     # Add to replay buffer
                     master_replay_buffer.extend(episode_data)
@@ -221,10 +236,24 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
                         print(f"  Completed {i + 1}/{episodes_per_iter} games...")
 
             # Display self-play stats
+            # Map the raw dictionary keys to cleaner display names
+            draw_display_names = {
+                "Draw_50_Move": "50-Move",
+                "Draw_Threefold": "Threefold",
+                "Draw_Insufficient": "Insuff. Mat",
+                "Draw_Stalemate": "Stalemate",
+                "Draw_Max_Horizon": "Horizon"
+            }
+
+            # Filter and format only the draw reasons that actually occurred
+            active_draws = [f"{draw_display_names[k]}: {v}" for k, v in draw_reasons.items() if v > 0]
+            draw_string = " | ".join(active_draws) if active_draws else "None"
+
             avg_len = total_plies / episodes_per_iter
             print(f"\n--- Self-play stats ---")
             print(f"Outcomes: {outcomes}")
             print(f"Win Methods: Checkmates: {win_methods['Checkmate']} | Tiebreakers: {win_methods['Tiebreaker']}")
+            print(f"Draw Reasons: {draw_string}")
             print(f"Avg Game Length: {avg_len:.1f} plies")
             print(f"Buffer Size: {len(master_replay_buffer)}")
             print(f"-------------------------------\n")
@@ -302,7 +331,9 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
         print(" TRAINING INTERRUPTED BY USER (Ctrl+C)")
         print("="*50)
         print("Performing emergency save of current replay buffer...")
-        torch.save(master_replay_buffer, buffer_path)
+        temp_filepath = f"{buffer_path}.tmp"
+        torch.save(master_replay_buffer, temp_filepath)
+        os.replace(temp_filepath, buffer_path)
         print("Emergency save complete.")
         if current_iter > 0:
             print(f"Safe exit complete. You can resume later from: iter_{current_iter-1}.pth")
