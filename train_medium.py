@@ -319,4 +319,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=60, epochs=2, batch_size=256, num_workers=6, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000)
+    train_alphazero(model, game, episodes_per_iter=30, epochs=2, batch_size=256, num_workers=6, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000)

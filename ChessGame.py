@@ -60,8 +60,8 @@ class ChessGame:
         if state.can_claim_draw():
             return True, 0.0
         
-        # Stop the drunken monkey!
-        if state.fullmove_number > 150:
+        # Material tiebreaker
+        if state.fullmove_number > 200:
             # Instead of a draw, award the win to whoever has more material!
             # Standard chess piece values: P=1, N=3, B=3, R=5, Q=9
             white_material = len(state.pieces(chess.PAWN, chess.WHITE)) * 1 + \
@@ -77,14 +77,14 @@ class ChessGame:
                              len(state.pieces(chess.QUEEN, chess.BLACK)) * 9
 
             if white_material > black_material:
-                return True, 1.0  # White wins by decision
+                return True, 0.5  # White wins by decision
             elif black_material > white_material:
-                return True, -1.0 # Black wins by decision
+                return True, -0.5 # Black wins by decision
             else:
                 return True, 0.0  # True draw
         
-        # Over 200 moves in a single game is a draw
-        if state.fullmove_number > 200:
+        # Max moves (only for when there is no material tiebreaker)
+        if state.fullmove_number > 250:
             return True, 0.0
 
         return False, 0.0
