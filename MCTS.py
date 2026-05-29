@@ -87,7 +87,7 @@ class MCTS:
                 current_player_is_white = state.turn
                 
                 if absolute_reward == 0.0:
-                    value = 0.0
+                    value = 0.1
                 elif (absolute_reward == 1.0 and current_player_is_white) or (absolute_reward == -1.0 and not current_player_is_white):
                     value = 1.0
                 else:
@@ -100,6 +100,8 @@ class MCTS:
                     policy_logits, value_tensor = self.model(board_tensor, meta_tensor, legal_mask)
                 
                 value = value_tensor.item()
+                if state.is_repetition(2):
+                    value = min(1.0, value + 0.25) # Penalize repetitions
                 policy_probs = torch.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
 
                 legal_actions = self.game.get_legal_actions(state)

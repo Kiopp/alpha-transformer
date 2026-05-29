@@ -68,11 +68,15 @@ def execute_episode(model, game, mcts_simulations=100):
         train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi.astype(np.float32), current_player])
         
         # Choose action based on temperature
-        #tau = max(0., 1.2 - (state.fullmove_number / 100.0))
         if state.fullmove_number <= 30:
-            tau = 1.0 # Discover new openings
+            tau = 1.0  # Opening variation
+        elif state.fullmove_number <= 70:
+            tau = 0.5  # Keep middlegame fluid to force pawn pushes/trades
+        elif state.fullmove_number >= 100:
+            tau = 0.25 # Break late-game shuffling
         else:
-            tau = 0.05 # Play good
+            tau = 0.1  # Focused play
+            
         valid_moves_mask = pi > 0
         adjusted_pi = np.zeros_like(pi)
         adjusted_pi[valid_moves_mask] = np.power(pi[valid_moves_mask], 1.0 / tau)
