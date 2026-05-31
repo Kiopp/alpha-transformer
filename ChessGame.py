@@ -77,9 +77,9 @@ class ChessGame:
                              len(state.pieces(chess.QUEEN, chess.BLACK)) * 9
 
             if white_material > black_material:
-                return True, 0.5  # White wins by decision
+                return True, 0.15  # White wins by decision
             elif black_material > white_material:
-                return True, -0.5 # Black wins by decision
+                return True, -0.15 # Black wins by decision
             else:
                 return True, 0.0  # True draw
         

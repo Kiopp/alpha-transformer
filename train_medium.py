@@ -63,9 +63,20 @@ def execute_episode(model, game, mcts_simulations=100):
     
     while True:
         # Boost simulation count when board is sparce
-        if len(state.piece_map()) <= 10:
-            mcts.num_simulations = mcts_simulations * 2  # Boosts to 800
+        piece_count = len(state.piece_map())
+        if piece_count <= 6:
+            # Tablebase territory (King + pawn/piece endings)
+            # 400 * 2.5 = 1000 simulations
+            mcts.num_simulations = int(mcts_simulations * 2.5)
+        elif piece_count <= 10:
+            # Deeper endgame
+            mcts.num_simulations = int(mcts_simulations * 2)
+        elif piece_count <= 12:
+            # Deep endgame
+            # 400 * 1.5 = 600 simulations
+            mcts.num_simulations = int(mcts_simulations * 1.5)
         else:
+            # Opening and Middlegame
             mcts.num_simulations = mcts_simulations
 
         board_tensor, meta_tensor, legal_mask = game.prepare_inputs(state)
