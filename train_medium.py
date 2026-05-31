@@ -62,6 +62,12 @@ def execute_episode(model, game, mcts_simulations=100):
     train_examples = []
     
     while True:
+        # Boost simulation count when board is sparce
+        if len(state.piece_map()) <= 10:
+            mcts.num_simulations = mcts_simulations * 2  # Boosts to 800
+        else:
+            mcts.num_simulations = mcts_simulations
+
         board_tensor, meta_tensor, legal_mask = game.prepare_inputs(state)
         pi = mcts.search(state)
         current_player = 1 if state.turn else -1
@@ -72,10 +78,8 @@ def execute_episode(model, game, mcts_simulations=100):
             tau = 1.0  # Opening variation
         elif state.fullmove_number <= 70:
             tau = 0.5  # Keep middlegame fluid to force pawn pushes/trades
-        elif state.fullmove_number >= 100:
-            tau = 0.25 # Break late-game shuffling
         else:
-            tau = 0.1  # Focused play
+            tau = 0.05  # Focused play (Lock-in)
             
         valid_moves_mask = pi > 0
         adjusted_pi = np.zeros_like(pi)
