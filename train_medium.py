@@ -89,8 +89,10 @@ def execute_episode(model, game, mcts_simulations=100):
             tau = 1.0  # Opening variation
         elif state.fullmove_number <= 70:
             tau = 0.5  # Keep middlegame fluid to force pawn pushes/trades
+        elif state.fullmove_number <= 100:
+            tau = 0.25  # Ease into lategame
         else:
-            tau = 0.05  # Focused play (Lock-in)
+            tau = 0.125  # Focused play (Lock-in)
             
         valid_moves_mask = pi > 0
         adjusted_pi = np.zeros_like(pi)

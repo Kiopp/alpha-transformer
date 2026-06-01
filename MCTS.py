@@ -87,7 +87,7 @@ class MCTS:
                 current_player_is_white = state.turn
                 
                 if absolute_reward == 0.0:
-                    value = 0.1
+                    value = 0.0
                 elif (absolute_reward == 1.0 and current_player_is_white) or (absolute_reward == -1.0 and not current_player_is_white):
                     value = 1.0
                 else:
