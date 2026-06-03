@@ -150,6 +150,7 @@ class MCTS:
         return best_action, best_child
 
     def _backpropagate(self, node, value):
+        value = -value 
         while node is not None:
             node.visit_count += 1
             node.value_sum += value
