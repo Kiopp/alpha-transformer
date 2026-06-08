@@ -156,8 +156,14 @@ def get_latest_checkpoint(filename):
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4, num_sims=100, max_buffer_size=50000, max_buffer_sample=10000):
+def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128, keep_last_n_checkpoints=5, num_workers=4, num_sims=100, max_buffer_size=50000, max_buffer_sample=10000, enable_scheduler=True):
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.5, 
+        patience=3
+    )
     value_criterion = nn.MSELoss()
     filename = "chess_medium"
 
@@ -176,6 +182,12 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
         if 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+            if 'scheduler_state_dict' in checkpoint:
+                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                print("Loaded scheduler state.")
+            else:
+                print("No scheduler state in checkpoint. Starting scheduler fresh.")
         else:
             model.load_state_dict(checkpoint)
             
@@ -325,12 +337,19 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
                 avg_pol = total_pol_loss / len(dataloader)
                 print(f"  Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} (Value: {avg_val:.4f} | Policy: {avg_pol:.4f})")
 
+            # Step the scheduler using the final epoch's average loss
+            if enable_scheduler:
+                scheduler.step(avg_loss)
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"Current Learning Rate: {current_lr:.6f}")
+
             # Step 4: Save Checkpoint with Optimizer State
             save_path = f"{filename}_iter_{current_iter}.pth"
             checkpoint = {
                 'iteration': current_iter,
                 'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict()
             }
             torch.save(checkpoint, save_path)
             print(f"\n>>> Checkpoint saved: {save_path} <<<")
@@ -371,4 +390,4 @@ if __name__ == "__main__":
     ).to(game.device)
     
     # Starts the infinite training loop.
-    train_alphazero(model, game, episodes_per_iter=30, epochs=2, batch_size=256, num_workers=6, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000)
+    train_alphazero(model, game, episodes_per_iter=30, epochs=2, batch_size=256, num_workers=6, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True)

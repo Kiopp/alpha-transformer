@@ -6,7 +6,7 @@ import torch
 class Node:
     def __init__(self, prior_prob, parent=None, action_taken=None):
         self.parent = parent
-        self.action_taken = action_taken # The move taken to get to thois position
+        self.action_taken = action_taken # The move taken to get to this position
         
         self.children = {}
 
@@ -38,48 +38,74 @@ class MCTS:
         self.num_simulations = num_simulations
         self.c_puct = c_puct # Controls exploration vs exploitation
         self.self_play = self_play 
+        self.root = None
+        self.root_move_count = 0
 
     def search(self, initial_state):
-        root = Node(prior_prob=1.0)
+        plies_played = len(initial_state.move_stack)
 
-        # Expand root to add noise
-        board_tensor, meta_tensor, legal_mask = self.game.prepare_inputs(initial_state)
-        with torch.no_grad():
-            self.model.eval()
-            policy_logits, _ = self.model(board_tensor, meta_tensor, legal_mask)
-            policy_probs = torch.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
+        # Advance the root
+        if self.root is not None and plies_played > self.root_move_count:
+            # Traverse down the tree for all new moves added since our last search
+            for i in range(self.root_move_count, plies_played):
+                move = initial_state.move_stack[i]
+                action = self.game._move_to_action(move)
+                
+                if self.root is not None and action in self.root.children:
+                    self.root = self.root.children[action]
+                    self.root.parent = None # Sever old parent reference to clear memory
+                else:
+                    # The branch wasn't explored deep enough or instance reset; invalidate tree
+                    self.root = None
+                    break
 
-            legal_actions = self.game.get_legal_actions(initial_state)
-            action_probs = {a: policy_probs[a] for a in legal_actions}
-        root.expand(action_probs)
+        # Fallback for invalidated tree or new game
+        if self.root is None or plies_played < self.root_move_count:
+            self.root = Node(prior_prob=1.0)
+            
+        self.root_move_count = plies_played
+        root = self.root
 
+        # Expand root iff it is brand new
+        if not root.is_expanded():
+            board_tensor, meta_tensor, legal_mask = self.game.prepare_inputs(initial_state)
+            with torch.no_grad():
+                self.model.eval()
+                policy_logits, _ = self.model(board_tensor, meta_tensor, legal_mask)
+                policy_probs = torch.softmax(policy_logits, dim=1).squeeze(0).cpu().numpy()
+
+                legal_actions = self.game.get_legal_actions(initial_state)
+                action_probs = {a: policy_probs[a] for a in legal_actions}
+            root.expand(action_probs)
+
+        # Blend Dirichlet noise for self-play exploration
         if self.self_play:
-            # Add Dirichlet noise to enable more exploration
+            legal_actions = self.game.get_legal_actions(initial_state)
             dirichlet_alpha = 0.3
             exploration_fraction = 0.25
 
-            # Generate noise
+            # Generate noise matching current legal action count
             noise = np.random.dirichlet([dirichlet_alpha] * len(legal_actions))
 
             # Blend noise into root prior probabilities
             for i, action in enumerate(legal_actions):
-                root.children[action].prior_prob = (
-                    root.children[action].prior_prob * (1 - exploration_fraction)
-                    + noise[i] * exploration_fraction
-                )
+                if action in root.children:
+                    root.children[action].prior_prob = (
+                        root.children[action].prior_prob * (1 - exploration_fraction)
+                        + noise[i] * exploration_fraction
+                    )
 
         # Simulation loop
         for sim in range(self.num_simulations):
             node = root
             state = self.game.clone_state(initial_state)
+            value = 0.0
 
             # Selection
             while node.is_expanded():
                 action, node = self._select_child(node)
                 state = self.game.get_next_state(state, action)
-            
-            is_terminal, value = self.game.get_reward_and_terminal(state)
-
+                
             is_terminal, absolute_reward = self.game.get_reward_and_terminal(state)
 
             if is_terminal:
@@ -112,7 +138,6 @@ class MCTS:
             self._backpropagate(node, value)
 
             # Early stopping
-            # If visited move is too far ahead of the others to catch up, CPU time will be saved
             if not self.self_play and (sim > 0 and sim % 10 == 0):
                 visits = [child.visit_count for child in root.children.values()]
                 visits.sort(reverse=True)
