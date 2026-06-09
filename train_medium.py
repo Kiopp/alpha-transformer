@@ -167,8 +167,8 @@ def train_alphazero(model, game, episodes_per_iter=20, epochs=4, batch_size=128,
     value_criterion = nn.MSELoss()
     filename = "chess_medium"
 
-    # Guard agains overfitting on value loss
-    value_loss_weight = 0.5
+    # Guard agains overfitting on value loss by setting to 0.5
+    value_loss_weight = 1
     
     # Check for existing saves to resume
     latest_file, last_iter = get_latest_checkpoint(filename)
