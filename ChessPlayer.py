@@ -95,6 +95,7 @@ class MultiHeadAttention(nn.Module):
 
         # Ensure clean maths
         assert embed_dim % num_heads == 0
+        self.num_heads = num_heads
         self.embed_dim = embed_dim
         self.head_size = embed_dim // num_heads
 
