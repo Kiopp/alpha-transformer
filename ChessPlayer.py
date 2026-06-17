@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class ChessTransformer(nn.Module):
     def __init__(self, vocab_size, max_seq_len, num_actions, num_meta_features, embed_dim=64, num_heads=4, num_blocks=3):
@@ -88,21 +89,39 @@ class ChessTransformer(nn.Module):
         
         return policy_logits, value
 
-class AttentionHead(nn.Module):
-    def __init__(self, embed_dim, head_size):
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, embed_dim):
         super().__init__()
 
-        self.query = nn.Linear(embed_dim, head_size, bias=False)
-        self.key = nn.Linear(embed_dim, head_size, bias=False)
-        self.value = nn.Linear(embed_dim, head_size, bias=False)
+        # Ensure clean maths
+        assert embed_dim % num_heads == 0
+        self.embed_dim = embed_dim
+        self.head_size = embed_dim // num_heads
+
+        # Create parallell attention heads
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+
+        # Create projection layer
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
         self.drop  = nn.Dropout(0.1)
 
     def forward(self, x):
-        q = self.query(x)
-        k = self.key(x)
-        v = self.value(x)
+        B, T, C = x.size() # Batch size, Sequence length, Embedding dimension
 
-        out = nn.functional.scaled_dot_product_attention(
+        # Project all heads simultaneously
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+
+        # Reshape and transpose
+        q = q.view(B, T, self.num_heads, self.head_size).transpose(1, 2)
+        k = k.view(B, T, self.num_heads, self.head_size).transpose(1, 2)
+        v = v.view(B, T, self.num_heads, self.head_size).transpose(1, 2)
+
+        # Apply scaled dot-product attention
+        out = F.scaled_dot_product_attention(
             query=q,
             key=k,
             value=v,
@@ -110,34 +129,11 @@ class AttentionHead(nn.Module):
             is_causal=False
         )
 
-        return out
+        # Transpose back and concatenate heads
+        out = out.transpose(1, 2).contiguous().view(B, T, C)
 
-class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads, embed_dim):
-        super().__init__()
-
-        # Ensure clean maths
-        assert embed_dim % num_heads == 0
-        head_size = embed_dim // num_heads
-
-        # Create parallell attention heads
-        self.heads = nn.ModuleList([
-            AttentionHead(embed_dim, head_size) for _ in range(num_heads)
-        ])
-
-        # Create projection layer
-        self.proj = nn.Linear(embed_dim, embed_dim)
-        self.drop  = nn.Dropout(0.1)
-
-    def forward(self, x):
-        # Run all heads
-        head_outputs = [h(x) for h in self.heads]
-
-        # Concatinate results
-        out = torch.cat(head_outputs, dim=-1)
-
-        # Project to complete head combination
-        out = self.proj(out)
+        # Final projection
+        out = self.out_proj(out)
         out = self.drop(out)
 
         return out
