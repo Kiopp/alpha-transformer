@@ -239,7 +239,7 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
     value_criterion = nn.MSELoss()
     filename = "chess_medium"
 
-    value_loss_weight = 1.0
+    value_loss_weight = 2.5
     
     latest_file, last_iter = get_latest_checkpoint(filename)
     
@@ -254,6 +254,7 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
             if 'scheduler_state_dict' in checkpoint and checkpoint['scheduler_state_dict'] is not None:
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 print("Loaded scheduler state.")
+                #print("Skipping scheduler loading.")
             else:
                 print("No scheduler state in checkpoint. Starting scheduler fresh.")
         else:
