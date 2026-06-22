@@ -198,7 +198,7 @@ class ChessGUI:
             return True
         return False
 
-def get_latest_checkpoint(prefix="chess_medium_iter_", suffix=".pth"):
+def get_latest_checkpoint(prefix="chess_model_iter_", suffix=".pth"):
     """Scans the local directory to automatically detect the highest iteration checkpoint."""
     pattern = f"{prefix}*{suffix}"
     files = glob.glob(pattern)

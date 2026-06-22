@@ -233,7 +233,7 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
         optimizer, mode='min', factor=0.5, patience=7
     )
     value_criterion = nn.MSELoss()
-    filename = "chess_medium"
+    filename = "chess_model"
 
     value_loss_weight = 2.5
     
