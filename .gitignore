@@ -217,4 +217,15 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# PyTorch model 
+*.pth
+*.pt
+
+# Temporary
+*_convo
 one-off-scripts/
+*.tmp
+
+# My backup folders
+small_model/
+medium_model/
