@@ -18,10 +18,6 @@ from ChessPlayer import ChessTransformer
 from MCTS import MCTS
 import torch.multiprocessing as mp
 import signal
-
-def init_worker():
-    """Forces child processes to ignore CTRL+C so the main process can handle it."""
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
     
 # --- Dataset ---
 class ChessDataset(Dataset):
