@@ -18,18 +18,31 @@ This repository contains a chess engine trained via self-play reinforcement lear
 # Usage
 
 ## Training
-To train the model via self-play, execute train.py. The system handles replay buffers, dynamic batching, and saves intermediate network weights as checkpoints.
+To train the model via self-play, execute train.py. The system handles replay buffers, dynamic batching, and saves intermediate network weights(including optimizer and LR scheduler states) as checkpoints.
+```bash
+python train.py
+```
 
 ## Playing
 You can evaluate the trained model using the Tkinter-based graphical user interface provided in play.py. This script will automatically detect the most recent model checkpoint to use for evaluation.
 
 Run the script via command line to select your target mode:
 
-human: Play as White against the Transformer model.
-
-random: Watch a random baseline agent play against the Transformer model.
-
-ai: Watch two instances of the model play against each other.
-
+* human: Play as White against the Transformer model.
+```bash
+python play.py --mode human
+```
+* random: Watch a random baseline agent play against the Transformer model.
+```bash
+python play.py --mode random
+```
+* ai: Watch two instances of the model play against each other.
+```bash
+python play.py --mode ai
+```
+* Advanced configuration: You can pit specific training checkpoints against each other and change the search depth.
+```bash
+python play.py --mode ai --sims 400 --model_white chess_model_iter_10.pth --model_black chess_model_iter_20.pth
+```
 # License
 This software is released under the MIT License. Please review the LICENSE file for more details. Copyright (c) 2026 Jesper Wentzell.
