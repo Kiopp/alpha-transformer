@@ -14,6 +14,8 @@ from ChessPlayer import ChessTransformer
 from MCTS import MCTS
 
 # Hardware compatibility optimization
+#os.environ["HSA_OVERRIDE_GFX_VERSION"] = "11.0.0" # For my Ryzen AI 7 350 laptop
+
 os.environ["TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL"] = "1"
 
 # Unicode character dictionary mapping for clean vector rendering of pieces
@@ -163,7 +165,7 @@ class ChessGUI:
         last_move = self.board.peek() if self.board.move_stack else None
         
         # Dynamically scale font based on current square size
-        font_size = max(12, int(self.square_size * 0.55))
+        font_size = max(12, int(self.square_size * 0.45))
         
         # 1. Draw Squares
         for row in range(8):
