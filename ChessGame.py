@@ -8,7 +8,10 @@ class ChessGame:
         self.action_size = 4096 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def get_initial_state(self):
+    def get_initial_state(self, fen=None):
+        """Returns the starting board. If a FEN is provided, starts from that position."""
+        if fen:
+            return chess.Board(fen)
         return chess.Board()
 
     def clone_state(self, state):

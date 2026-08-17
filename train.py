@@ -98,10 +98,14 @@ def inference_server_process(model, req_queue, res_pipes, num_workers, device):
         for i, w_id in enumerate(worker_ids):
             res_pipes[w_id].send((policy_logits[i].unsqueeze(0), values[i].unsqueeze(0)))
 
-def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, res_pipe, return_dict):
+def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, res_pipe, return_dict, curriculum_mode="tabula_rasa"):
     """The CPU worker loop. Plays N games sequentially by querying the InferenceClient."""
     torch.set_num_threads(1)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    
+    # Import and instantiate inside the worker to ensure multiprocessing safety
+    from Curriculum import PositionSampler
+    sampler = PositionSampler(mode=curriculum_mode, opening_prob=0.4, endgame_prob=0.3)
 
     client = InferenceClient(worker_id, req_queue, res_pipe)
     worker_buffer = []
@@ -111,7 +115,9 @@ def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, 
     total_plies = 0
 
     for i in range(num_games):
-        episode_data, absolute_reward, reason = execute_episode(client, game_instance, mcts_sims)
+        starting_fen = sampler.sample() # Sample a new position for each game
+        episode_data, absolute_reward, reason = execute_episode(client, game_instance, mcts_sims, starting_fen)
+        
         worker_buffer.extend(episode_data)
         total_plies += len(episode_data)
 
@@ -143,9 +149,9 @@ def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, 
         "total_plies": total_plies
     }
 
-def execute_episode(model, game, mcts_simulations=100):
+def execute_episode(model, game, mcts_simulations=100, starting_fen=None):
     mcts = MCTS(model, game, num_simulations=mcts_simulations)
-    state = game.get_initial_state()
+    state = game.get_initial_state(starting_fen)
     train_examples = []
     
     while True:
@@ -227,7 +233,7 @@ def get_latest_checkpoint(filename):
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512, keep_last_n_checkpoints=5, num_workers=10, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True):
+def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512, keep_last_n_checkpoints=5, num_workers=10, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True, curriculum_mode="curriculum"):
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=7
@@ -311,7 +317,7 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
             for i in range(num_workers):
                 w = mp.Process(
                     target=self_play_worker, 
-                    args=(i, games_per_worker[i], cpu_game, num_sims, req_queue, worker_pipes[i], return_dict)
+                    args=(i, games_per_worker[i], cpu_game, num_sims, req_queue, worker_pipes[i], return_dict, curriculum_mode)
                 )
                 w.start()
                 workers.append(w)

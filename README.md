@@ -15,6 +15,8 @@ This repository contains a chess engine trained via self-play reinforcement lear
 
 * Asynchronous GPU Training: The training loop in train.py utilizes multiprocessing, allowing CPU workers to simulate games in parallel while an inference server batches requests to the GPU for efficient hardware utilization.
 
+* Option for tabula rasa or curriculum training using pre-defined Forsyth-Edwards Notation (FEN) strings
+
 # Usage
 
 ## Training
