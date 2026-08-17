@@ -80,7 +80,7 @@ class PositionSampler:
         
         # Validate the board
         # If the generated board puts the player *not* to move in check, it's illegal.
-        if board.is_valid():
+        if board.is_valid() and not board.is_game_over():
             return board.fen()
         
         # Fallback to a standard, guaranteed-legal K+R vs K endgame if random gen fails
