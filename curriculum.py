@@ -86,7 +86,7 @@ class PositionSampler:
         # Fallback to a standard, guaranteed-legal K+R vs K endgame if random gen fails
         return "8/8/8/8/8/8/4k3/R3K3 w Q - 0 1"
 
-def sample(self):
+    def sample(self):
         """Returns a starting FEN string, or None for standard starting position."""
         if self.mode == "tabula_rasa":
             return None

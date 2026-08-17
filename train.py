@@ -105,7 +105,7 @@ def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     
     # Import and instantiate inside the worker to ensure multiprocessing safety
-    from Curriculum import PositionSampler
+    from curriculum import PositionSampler
     sampler = PositionSampler(mode=curriculum_mode, opening_prob=0.4, endgame_prob=0.3)
 
     client = InferenceClient(worker_id, req_queue, res_pipe)
