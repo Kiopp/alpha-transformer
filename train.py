@@ -171,14 +171,18 @@ def execute_episode(model, game, mcts_simulations=100, starting_fen=None):
         current_player = 1 if state.turn else -1
         train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi.astype(np.float32), current_player])
         
-        if state.fullmove_number <= 30:
+        # Count plies played in this specific episode
+        plies_played = len(train_examples)
+        
+        # 60 plies = 30 full moves
+        if plies_played <= 60:
             tau = 1.0  
-        elif state.fullmove_number <= 70:
+        elif plies_played <= 140:
             tau = 0.5  
-        elif state.fullmove_number <= 100:
+        elif plies_played <= 200:
             tau = 0.25  
         else:
-            tau = 0.125 
+            tau = 0.125
             
         valid_moves_mask = pi > 0
         adjusted_pi = np.zeros_like(pi)
