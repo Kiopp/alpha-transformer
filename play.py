@@ -344,8 +344,12 @@ class ChessGUI:
 def get_latest_checkpoint(prefix="chess_model_iter_", suffix=".pth"):
     pattern = f"{prefix}*{suffix}"
     files = glob.glob(pattern)
+    
     if not files:
-        return None
+        prefix = "curri_chess_model_iter_"
+        files = glob.glob(pattern)
+        if not files:
+            return None
     
     discovered_iterations = []
     for f in files:
