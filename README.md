@@ -15,14 +15,35 @@ This repository contains a chess engine trained via self-play reinforcement lear
 
 * Asynchronous GPU Training: The training loop in train.py utilizes multiprocessing, allowing CPU workers to simulate games in parallel while an inference server batches requests to the GPU for efficient hardware utilization.
 
+* Curriculum Learning: Curriculum.py contains a PositionSampler that injects predefined FEN strings (standard openings and endgames) to overcome tabula rasa data starvation.
+
 * Option for tabula rasa or curriculum training using pre-defined Forsyth-Edwards Notation (FEN) strings
 
 # Usage
+> **Hardware Note:** The codebase currently includes environment variables optimized for AMD GPUs via ROCm (e.g., Ryzen AI processors). If you are using an NVIDIA GPU or running purely on CPU, you may safely remove or ignore the `TORCH_ROCM...` environment flags at the top of the scripts.
+
+## Prerequisites
+This project requires Python 3.8+ and the following dependencies:
+* `torch` (PyTorch)
+* `chess` (python-chess)
+* `numpy`
+* `tkinter` (Usually included with standard Python installations, required for the GUI)
+
+You can install the required packages via pip:
+```bash
+pip install torch chess numpy
+```
 
 ## Training
-To train the model via self-play, execute train.py. The system handles replay buffers, dynamic batching, and saves intermediate network weights(including optimizer and LR scheduler states) as checkpoints.
+The system handles replay buffers, dynamic batching, and saves intermediate network weights(including optimizer and LR scheduler states) as checkpoints.
+To start training using the predefined openings and endgames (Curriculum mode):
 ```bash
-python train.py
+python train.py --curriculum curriculum
+```
+
+To start purely from scratch (Tabula Rasa):
+```bash
+python train.py --curriculum tabula_rasa
 ```
 
 ## Playing

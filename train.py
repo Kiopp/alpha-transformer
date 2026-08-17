@@ -18,6 +18,7 @@ from ChessPlayer import ChessTransformer
 from MCTS import MCTS
 import torch.multiprocessing as mp
 import signal
+import argparse
     
 # --- Dataset ---
 class ChessDataset(Dataset):
@@ -446,6 +447,11 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
             print("Exited before completing the first iteration.")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Alpha-Transformer Training Script")
+    parser.add_argument("--curriculum", type=str, choices=["tabula_rasa", "curriculum"], default="curriculum",
+                        help="Training mode: 'tabula_rasa' (from scratch) or 'curriculum' (uses predefined FENs)")
+    args = parser.parse_args()
+
     torch.cuda.set_per_process_memory_fraction(0.8, device=0) 
     
     mp.set_start_method('spawn', force=True)
@@ -456,6 +462,8 @@ if __name__ == "__main__":
         num_meta_features=6, embed_dim=256, num_heads=8, num_blocks=10
     ).to(game.device)
     
+    print(f"Starting training in {args.curriculum.upper()} mode...")
+    
     train_alphazero(
         model, game, 
         episodes_per_iter=40,   # Increased throughput 
@@ -465,5 +473,6 @@ if __name__ == "__main__":
         num_sims=400, 
         max_buffer_size=250000, 
         max_buffer_sample=50000, 
-        enable_scheduler=True
+        enable_scheduler=True,
+        curriculum_mode=args.curriculum
     )
