@@ -18,6 +18,7 @@ from ChessPlayer import ChessTransformer
 from MCTS import MCTS
 import torch.multiprocessing as mp
 import signal
+import argparse
     
 # --- Dataset ---
 class ChessDataset(Dataset):
@@ -98,10 +99,14 @@ def inference_server_process(model, req_queue, res_pipes, num_workers, device):
         for i, w_id in enumerate(worker_ids):
             res_pipes[w_id].send((policy_logits[i].unsqueeze(0), values[i].unsqueeze(0)))
 
-def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, res_pipe, return_dict):
+def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, res_pipe, return_dict, curriculum_mode="tabula_rasa"):
     """The CPU worker loop. Plays N games sequentially by querying the InferenceClient."""
     torch.set_num_threads(1)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    
+    # Import and instantiate inside the worker to ensure multiprocessing safety
+    from curriculum import PositionSampler
+    sampler = PositionSampler(mode=curriculum_mode, opening_prob=0.4, endgame_prob=0.3)
 
     client = InferenceClient(worker_id, req_queue, res_pipe)
     worker_buffer = []
@@ -111,7 +116,9 @@ def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, 
     total_plies = 0
 
     for i in range(num_games):
-        episode_data, absolute_reward, reason = execute_episode(client, game_instance, mcts_sims)
+        starting_fen = sampler.sample() # Sample a new position for each game
+        episode_data, absolute_reward, reason = execute_episode(client, game_instance, mcts_sims, starting_fen)
+        
         worker_buffer.extend(episode_data)
         total_plies += len(episode_data)
 
@@ -143,9 +150,9 @@ def self_play_worker(worker_id, num_games, game_instance, mcts_sims, req_queue, 
         "total_plies": total_plies
     }
 
-def execute_episode(model, game, mcts_simulations=100):
+def execute_episode(model, game, mcts_simulations=100, starting_fen=None):
     mcts = MCTS(model, game, num_simulations=mcts_simulations)
-    state = game.get_initial_state()
+    state = game.get_initial_state(starting_fen)
     train_examples = []
     
     while True:
@@ -164,14 +171,18 @@ def execute_episode(model, game, mcts_simulations=100):
         current_player = 1 if state.turn else -1
         train_examples.append([board_tensor.cpu().numpy(), meta_tensor.cpu().numpy(), legal_mask.cpu().numpy(), pi.astype(np.float32), current_player])
         
-        if state.fullmove_number <= 30:
+        # Count plies played in this specific episode
+        plies_played = len(train_examples)
+        
+        # 60 plies = 30 full moves
+        if plies_played <= 60:
             tau = 1.0  
-        elif state.fullmove_number <= 70:
+        elif plies_played <= 140:
             tau = 0.5  
-        elif state.fullmove_number <= 100:
+        elif plies_played <= 200:
             tau = 0.25  
         else:
-            tau = 0.125 
+            tau = 0.125
             
         valid_moves_mask = pi > 0
         adjusted_pi = np.zeros_like(pi)
@@ -227,13 +238,18 @@ def get_latest_checkpoint(filename):
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512, keep_last_n_checkpoints=5, num_workers=10, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True):
+def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512, keep_last_n_checkpoints=5, num_workers=10, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True, curriculum_mode="curriculum"):
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=7
     )
     value_criterion = nn.MSELoss()
-    filename = "chess_model"
+    
+    if curriculum_mode == "curriculum":
+        filename = "curri_chess_model"
+    else:
+        filename = "chess_model"
+    
 
     value_loss_weight = 2.5
     
@@ -311,7 +327,7 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
             for i in range(num_workers):
                 w = mp.Process(
                     target=self_play_worker, 
-                    args=(i, games_per_worker[i], cpu_game, num_sims, req_queue, worker_pipes[i], return_dict)
+                    args=(i, games_per_worker[i], cpu_game, num_sims, req_queue, worker_pipes[i], return_dict, curriculum_mode)
                 )
                 w.start()
                 workers.append(w)
@@ -440,6 +456,11 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
             print("Exited before completing the first iteration.")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Alpha-Transformer Training Script")
+    parser.add_argument("--curriculum", type=str, choices=["tabula_rasa", "curriculum"], default="curriculum",
+                        help="Training mode: 'tabula_rasa' (from scratch) or 'curriculum' (uses predefined FENs)")
+    args = parser.parse_args()
+
     torch.cuda.set_per_process_memory_fraction(0.8, device=0) 
     
     mp.set_start_method('spawn', force=True)
@@ -450,6 +471,8 @@ if __name__ == "__main__":
         num_meta_features=6, embed_dim=256, num_heads=8, num_blocks=10
     ).to(game.device)
     
+    print(f"Starting training in {args.curriculum.upper()} mode...")
+    
     train_alphazero(
         model, game, 
         episodes_per_iter=40,   # Increased throughput 
@@ -459,5 +482,6 @@ if __name__ == "__main__":
         num_sims=400, 
         max_buffer_size=250000, 
         max_buffer_sample=50000, 
-        enable_scheduler=True
+        enable_scheduler=True,
+        curriculum_mode=args.curriculum
     )
