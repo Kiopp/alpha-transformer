@@ -347,6 +347,7 @@ def get_latest_checkpoint(prefix="chess_model_iter_", suffix=".pth"):
     
     if not files:
         prefix = "curri_chess_model_iter_"
+        pattern = f"{prefix}*{suffix}"
         files = glob.glob(pattern)
         if not files:
             return None
