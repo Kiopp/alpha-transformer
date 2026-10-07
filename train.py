@@ -14,7 +14,8 @@ import glob
 import re
 import queue 
 from ChessGame import ChessGame
-from ChessPlayer import ChessTransformer
+from Transformer_Player import ChessTransformer
+from CNN_Player import ChessResNet
 from MCTS import MCTS
 import torch.multiprocessing as mp
 import signal
@@ -238,7 +239,7 @@ def get_latest_checkpoint(filename):
     return latest_file, max_iter
 
 # --- Training loop ---
-def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512, keep_last_n_checkpoints=5, num_workers=10, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True, curriculum_mode="curriculum"):
+def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512, keep_last_n_checkpoints=5, num_workers=10, num_sims=400, max_buffer_size=250000, max_buffer_sample=50000, enable_scheduler=True, curriculum_mode="curriculum", architecture="transformer"):
     optimizer = optim.Adam(model.parameters(), lr=3e-4, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=7
@@ -246,9 +247,9 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
     value_criterion = nn.MSELoss()
     
     if curriculum_mode == "curriculum":
-        filename = "curri_chess_model"
+        filename = f"curri_{architecture}_chess_model"
     else:
-        filename = "chess_model"
+        filename = f"{architecture}_chess_model"
     
 
     value_loss_weight = 2.5
@@ -277,7 +278,7 @@ def train_alphazero(model, game, episodes_per_iter=40, epochs=2, batch_size=512,
         print("No previous checkpoints found. Starting fresh.")
         current_iter = 0
 
-    buffer_path = "replay_buffer.pt"
+    buffer_path = f"{architecture}_replay_buffer.pt"
     if os.path.exists(buffer_path):
         print(f"Loading replay buffer from {buffer_path}...")
         master_replay_buffer = torch.load(buffer_path, weights_only=False)
@@ -459,17 +460,31 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Alpha-Transformer Training Script")
     parser.add_argument("--curriculum", type=str, choices=["tabula_rasa", "curriculum"], default="curriculum",
                         help="Training mode: 'tabula_rasa' (from scratch) or 'curriculum' (uses predefined FENs)")
+    parser.add_argument("--arch", type=str, choices=["cnn", "transformer"], default="transformer",
+                        help="Neural network architecture: Faster 'cnn' or unoptimal 'transformer' neural network architecture")
     args = parser.parse_args()
+    architecture = args.arch
 
     torch.cuda.set_per_process_memory_fraction(0.8, device=0) 
     
     mp.set_start_method('spawn', force=True)
     mp.set_sharing_strategy('file_system')
     game = ChessGame()
-    model = ChessTransformer(
-        vocab_size=13, max_seq_len=64, num_actions=game.action_size, 
-        num_meta_features=6, embed_dim=256, num_heads=8, num_blocks=10
-    ).to(game.device)
+
+    if architecture == "cnn":
+        model = ChessResNet(
+            vocab_size=13, 
+            num_actions=game.action_size, 
+            num_meta_features=6, 
+            num_channels=128,   # 128 filters is a great sweet spot
+            num_blocks=8,       # Deep enough for tactics, shallow enough for speed
+            piece_embed_dim=32  # Learns a 32-dim vector representation for each piece type
+        ).to(game.device)
+    elif architecture == "transformer":
+        model = ChessTransformer(
+            vocab_size=13, max_seq_len=64, num_actions=game.action_size, 
+            num_meta_features=6, embed_dim=256, num_heads=8, num_blocks=10
+        ).to(game.device)
     
     print(f"Starting training in {args.curriculum.upper()} mode...")
     
@@ -483,5 +498,6 @@ if __name__ == "__main__":
         max_buffer_size=250000, 
         max_buffer_sample=50000, 
         enable_scheduler=True,
-        curriculum_mode=args.curriculum
+        curriculum_mode=args.curriculum,
+        architecture = architecture
     )

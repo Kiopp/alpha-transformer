@@ -227,5 +227,6 @@ one-off-scripts/
 *.tmp
 
 # My backup folders
-small_model/
-medium_model/
+transformer_model/
+cnn_model/
+curric_model/
